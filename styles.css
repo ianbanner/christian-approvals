@@ -251,7 +251,7 @@ h3 {
   text-transform: uppercase;
 }
 
-.summary, .draft {
+.summary, .draft, .draft-text {
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -260,7 +260,50 @@ h3 {
   background: var(--parchment);
   border-radius: 12px;
   padding: 0.8rem 0.85rem;
+}
+
+.draft-text {
   white-space: pre-wrap;
+}
+
+.draft-text + .draft-figure,
+.draft-figure + .draft-text,
+.draft-figure + .draft-figure {
+  margin-top: 0.9rem;
+}
+
+.item-title {
+  margin: 0.45rem 0 0.1rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.item-subtitle {
+  margin: 0 0 0.35rem;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.draft-figure {
+  margin: 0;
+}
+
+.draft-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.draft-figure figcaption {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.original a + a {
+  margin-left: 0.85rem;
 }
 
 .confirm {

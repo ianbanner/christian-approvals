@@ -201,6 +201,115 @@ function renderSection(section, items, now) {
   return block;
 }
 
+function safeImageSrc(value) {
+  if (typeof value !== "string") return "";
+  if (value.length > 1800000) return "";
+  if (!/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=\s]+$/.test(value)) return "";
+  return value;
+}
+
+function renderFigure(image, role) {
+  const src = safeImageSrc(image && image.src);
+  if (!src) return null;
+  const caption = text(image && image.caption);
+  const figure = el("figure", { class: `draft-figure ${role || "inline"}` });
+  figure.append(
+    el("img", {
+      src,
+      alt: caption || "Article illustration",
+      loading: "lazy",
+    })
+  );
+  if (caption) figure.append(el("figcaption", {}, [caption]));
+  return figure;
+}
+
+function renderDraft(item) {
+  const wrap = el("div", { class: "draft" });
+  const images = Array.isArray(item.images) ? item.images.filter((image) => image && typeof image === "object") : [];
+  const header = images.find((image) => image.role === "header");
+  const inlines = images.filter((image) => image.role !== "header");
+  const headerNode = header ? renderFigure(header, "header") : null;
+  if (headerNode) wrap.append(headerNode);
+
+  const draft = text(item.draft);
+  if (!draft && !inlines.length) {
+    wrap.append(el("div", { class: "draft-text" }, ["No draft text."]));
+    return wrap;
+  }
+  if (!draft || !inlines.length) {
+    if (draft) wrap.append(el("div", { class: "draft-text" }, [draft]));
+    for (const image of inlines) {
+      const node = renderFigure(image, "inline");
+      if (node) wrap.append(node);
+    }
+    return wrap;
+  }
+
+  const placements = inlines.map((image, index) => {
+    const after = text(image.after);
+    const found = after ? draft.indexOf(after) : -1;
+    const end = found === -1 ? Number.POSITIVE_INFINITY : found + after.length;
+    return { image, index, end };
+  });
+  placements.sort((left, right) => left.end - right.end || left.index - right.index);
+
+  let cursor = 0;
+  const placed = new Set();
+  for (const place of placements) {
+    if (!Number.isFinite(place.end)) continue;
+    let insertAt = place.end;
+    const newline = draft.indexOf("\n", insertAt);
+    const paragraph = draft.indexOf("\n\n", insertAt);
+    if (paragraph !== -1) insertAt = paragraph;
+    else if (newline !== -1) insertAt = newline;
+    if (insertAt > cursor) {
+      wrap.append(el("div", { class: "draft-text" }, [draft.slice(cursor, insertAt).replace(/^\n+/, "").replace(/\n+$/, "")]));
+    } else if (insertAt === cursor && cursor === 0) {
+      // Image sits at the very start of a following section; no preceding text.
+    }
+    const node = renderFigure(place.image, "inline");
+    if (node) wrap.append(node);
+    placed.add(place.index);
+    cursor = insertAt;
+    while (draft[cursor] === "\n") cursor += 1;
+  }
+  if (cursor < draft.length) {
+    const rest = draft.slice(cursor).replace(/^\n+/, "");
+    if (rest) wrap.append(el("div", { class: "draft-text" }, [rest]));
+  }
+  for (const place of placements) {
+    if (placed.has(place.index)) continue;
+    const node = renderFigure(place.image, "inline");
+    if (node) wrap.append(node);
+  }
+  return wrap;
+}
+
+function renderLinks(item) {
+  const row = el("p", { class: "original" });
+  const visuals = safeUrl(item.visuals_url);
+  const doc = safeUrl(item.doc_url);
+  const original = safeUrl(item.url);
+  const links = [];
+  if (doc || visuals) {
+    const docHref = doc || original;
+    if (docHref) links.push(el("a", { href: docHref, target: "_blank", rel: "noopener noreferrer" }, ["Open the Google Doc"]));
+    if (visuals) links.push(el("a", { href: visuals, target: "_blank", rel: "noopener noreferrer" }, ["Open the Drive visuals"]));
+  } else if (original) {
+    links.push(el("a", { href: original, target: "_blank", rel: "noopener noreferrer" }, ["Open original"]));
+  }
+  if (!links.length) {
+    row.append("No original link.");
+    return row;
+  }
+  links.forEach((link, index) => {
+    if (index) row.append(" ");
+    row.append(link);
+  });
+  return row;
+}
+
 function renderCard(item) {
   const saved = session.decisions.byId.get(item.id) || null;
   const card = el("article", { class: "card" });
@@ -264,17 +373,14 @@ function renderCard(item) {
   });
   saveChange.addEventListener("click", () => submitCard(item, "change", noteBox, changeBox, status, card, buttons));
 
-  const linkRow = el("p", { class: "original" });
-  const href = safeUrl(item.url);
-  if (href) {
-    linkRow.append(el("a", { href, target: "_blank", rel: "noopener noreferrer" }, ["Open original"]));
-  } else {
-    linkRow.append("No original link.");
-  }
+  const titleNodes = [];
+  if (text(item.title)) titleNodes.push(el("h2", { class: "item-title" }, [text(item.title)]));
+  if (text(item.subtitle)) titleNodes.push(el("p", { class: "item-subtitle" }, [text(item.subtitle)]));
 
   card.append(
     heading,
     el("p", { class: "author" }, [text(item.author) || "Unknown author"]),
+    ...titleNodes,
     el("p", { class: "meta-line" }, [metaLine(item)]),
     el("p", { class: "item-id" }, [`Id: ${text(item.id) || "missing"}`]),
     el("h3", {}, ["Summary"]),
@@ -285,8 +391,8 @@ function renderCard(item) {
     el("h3", {}, ["Flags"]),
     flags,
     el("h3", {}, ["Draft"]),
-    el("div", { class: "draft" }, [text(item.draft) || "No draft text."]),
-    linkRow,
+    renderDraft(item),
+    renderLinks(item),
     el("div", { class: "field" }, [
       el("label", { for: noteId }, ["Optional note"]),
       noteBox,
