@@ -97,35 +97,82 @@ def archive_decisions(token, records):
     branch = repo.get("default_branch") or "main"
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     for record in records:
-        source = record["path"]
-        name = source.rsplit("/", 1)[-1]
-        destination = f"archive/{day}/{name}"
-        document = github(token, "GET", f"/repos/{TICKS_REPO}/contents/{source}")
+        _archive_one(token, record, branch, day)
+
+
+# First try, then up to 3 retries when the file changes under us.
+ARCHIVE_ATTEMPTS = 4
+
+
+def _archive_one(token, record, branch, day):
+    """Move one decision to archive/<date>/, refreshing shas if the page writes at the same time."""
+    source = record["path"]
+    name = source.rsplit("/", 1)[-1]
+    destination = f"archive/{day}/{name}"
+    last_error = None
+    for attempt in range(ARCHIVE_ATTEMPTS):
+        try:
+            document = github(token, "GET", f"/repos/{TICKS_REPO}/contents/{source}")
+        except TicksError as exc:
+            if _status_is(exc, 404):
+                if attempt == 0:
+                    print(f"Skipped {source} because it is no longer in decisions/.", file=sys.stderr)
+                else:
+                    print(f"Archived {source} -> {destination}", file=sys.stderr)
+                return
+            raise
+        if not isinstance(document, dict) or not document.get("sha"):
+            raise TicksError(f"Copied {source} but the original sha was missing, so it was left in place.")
         content_b64 = _reencode_content(document)
-        existing_sha = _existing_sha(token, destination)
+        copied_sha = document.get("sha")
+        dest_sha = _existing_sha(token, destination)
         put_body = {
             "message": f"Archive decision {record['id']}",
             "content": content_b64,
             "branch": branch,
         }
-        if existing_sha:
-            put_body["sha"] = existing_sha
-        github(token, "PUT", f"/repos/{TICKS_REPO}/contents/{destination}", put_body)
-        source_sha = document.get("sha")
-        if not source_sha:
-            raise TicksError(f"Copied {source} but the original sha was missing, so it was left in place.")
+        if dest_sha:
+            put_body["sha"] = dest_sha
+        try:
+            github(token, "PUT", f"/repos/{TICKS_REPO}/contents/{destination}", put_body)
+        except TicksError as exc:
+            if _is_sha_conflict(exc) and attempt < ARCHIVE_ATTEMPTS - 1:
+                last_error = exc
+                continue
+            raise
+        try:
+            latest = github(token, "GET", f"/repos/{TICKS_REPO}/contents/{source}")
+        except TicksError as exc:
+            if _status_is(exc, 404):
+                print(f"Archived {source} -> {destination}", file=sys.stderr)
+                return
+            raise
+        latest_sha = latest.get("sha") if isinstance(latest, dict) else None
+        if latest_sha != copied_sha:
+            if attempt == ARCHIVE_ATTEMPTS - 1:
+                raise TicksError(f"Could not archive {source} because it changed while it was being moved.")
+            continue
         try:
             github(
                 token,
                 "DELETE",
                 f"/repos/{TICKS_REPO}/contents/{source}",
-                {"message": f"Archive decision {record['id']}", "sha": source_sha, "branch": branch},
+                {"message": f"Archive decision {record['id']}", "sha": latest_sha, "branch": branch},
             )
         except TicksError as exc:
+            if _status_is(exc, 404):
+                print(f"Archived {source} -> {destination}", file=sys.stderr)
+                return
+            if _is_sha_conflict(exc) and attempt < ARCHIVE_ATTEMPTS - 1:
+                last_error = exc
+                continue
             raise TicksError(
                 f"Copied {source} to {destination} but could not remove the original. {exc}"
             ) from exc
         print(f"Archived {source} -> {destination}", file=sys.stderr)
+        return
+    detail = f" {last_error}" if last_error else ""
+    raise TicksError(f"Could not archive {source} because it changed while it was being moved.{detail}")
 
 
 def github(token, method, path, body=None):
@@ -180,6 +227,14 @@ def _decode_content(document):
 
 def _reencode_content(document):
     return base64.b64encode(_decode_content(document)).decode("ascii")
+
+
+def _status_is(exc, status):
+    return str(exc).startswith(f"GitHub returned {status}")
+
+
+def _is_sha_conflict(exc):
+    return _status_is(exc, 409) or _status_is(exc, 422)
 
 
 def _existing_sha(token, path):

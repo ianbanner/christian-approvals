@@ -58,3 +58,23 @@ export function noteForDecision(decision, changeNotes, optionalNote) {
 export function decisionFileText(record) {
   return `${JSON.stringify(record, null, 2)}\n`;
 }
+
+export function formatDecisionTime(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    hour12: false,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).formatToParts(date);
+  const value = (type) => {
+    const found = parts.find((part) => part.type === type);
+    return found ? found.value : "";
+  };
+  return `${value("hour")}:${value("minute")} ${value("weekday")} ${value("day")} ${value("month")}`;
+}

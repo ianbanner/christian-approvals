@@ -329,16 +329,38 @@ h3 {
   margin-top: 0.85rem;
   border-radius: 12px;
   padding: 0.7rem 0.8rem;
+  width: auto;
   background: var(--parchment);
+  color: #1F3B2D;
 }
 
-.save-status.approve { background: var(--good-bg); }
-.save-status.reject { background: var(--danger-bg); color: var(--danger); }
-.save-status.change { background: #f8f1e2; }
-.save-status.error { background: var(--danger-bg); color: var(--danger); }
+/* The approve button uses the same class name and cream text. Pin the status colour so that text stays dark on the pale green. */
+.save-status.approve {
+  background: var(--good-bg);
+  color: #1F3B2D;
+}
 
-.save-status p { margin: 0.2rem 0; }
-.save-status .label { font-weight: 700; margin: 0; }
+.save-status.change {
+  background: #F8F1E2;
+  color: #1F3B2D;
+}
+
+.save-status.reject,
+.save-status.error {
+  background: var(--danger-bg);
+  color: #7A2E2E;
+}
+
+.save-status p {
+  margin: 0.2rem 0;
+  color: inherit;
+}
+
+.save-status .label {
+  font-weight: 700;
+  margin: 0;
+  color: inherit;
+}
 
 .expired { margin-top: 0.9rem; }
 
