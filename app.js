@@ -1,5 +1,5 @@
 import { decryptPayload } from "./crypto.js";
-import { buildDecisionRecord, decisionFileText, decisionPath, noteForDecision } from "./decision.js";
+import { buildDecisionRecord, decisionFileText, decisionPath, formatDecisionTime, noteForDecision } from "./decision.js";
 
 const STORAGE_KEY = "christianApprovals.passcode";
 const SECTIONS = [
@@ -256,15 +256,13 @@ function renderCard(item) {
     for (const button of buttons) button.disabled = true;
   }
 
-  const state = { sha: saved && saved.sha ? saved.sha : "" };
-
-  approve.addEventListener("click", () => submitCard(item, "approve", noteBox, changeBox, status, card, buttons, state));
-  reject.addEventListener("click", () => submitCard(item, "reject", noteBox, changeBox, status, card, buttons, state));
+  approve.addEventListener("click", () => submitCard(item, "approve", noteBox, changeBox, status, card, buttons));
+  reject.addEventListener("click", () => submitCard(item, "reject", noteBox, changeBox, status, card, buttons));
   change.addEventListener("click", () => {
     changePanel.hidden = !changePanel.hidden;
     if (!changePanel.hidden) changeBox.focus();
   });
-  saveChange.addEventListener("click", () => submitCard(item, "change", noteBox, changeBox, status, card, buttons, state));
+  saveChange.addEventListener("click", () => submitCard(item, "change", noteBox, changeBox, status, card, buttons));
 
   const linkRow = el("p", { class: "original" });
   const href = safeUrl(item.url);
@@ -309,7 +307,7 @@ function renderCard(item) {
   return card;
 }
 
-async function submitCard(item, decision, noteBox, changeBox, status, card, buttons, state) {
+async function submitCard(item, decision, noteBox, changeBox, status, card, buttons) {
   let note = "";
   try {
     note = noteForDecision(decision, changeBox.value, noteBox.value);
@@ -336,10 +334,8 @@ async function submitCard(item, decision, noteBox, changeBox, status, card, butt
   status.className = "save-status";
   status.replaceChildren(el("p", { class: "label" }, ["Saving..."]));
   try {
-    const result = await putDecision(session.payload.ticks_token, session.payload.ticks_repo, record, state.sha);
-    const nextSha = result && result.content && result.content.sha ? result.content.sha : state.sha;
-    state.sha = nextSha || "";
-    record.sha = state.sha;
+    const result = await putDecision(session.payload.ticks_token, session.payload.ticks_repo, record);
+    record.sha = result && result.content && result.content.sha ? result.content.sha : "";
     session.decisions.byId.set(record.id, record);
     card.dataset.decision = record.decision;
     fillSaved(status, record);
@@ -354,7 +350,11 @@ function fillSaved(status, record) {
   status.hidden = false;
   status.className = `save-status ${record.decision}`;
   const label = decisionLabel(record.decision);
-  const children = [el("p", { class: "label" }, [`Saved: ${label}`]), el("p", {}, [record.decided_at || ""])];
+  const when = formatDecisionTime(record.decided_at);
+  const line = el("p", {});
+  line.append(el("span", { class: "label" }, [`Saved: ${label}`]));
+  if (when) line.append(`, ${when}`);
+  const children = [line];
   if (record.note) children.push(el("p", {}, [record.note]));
   status.replaceChildren(...children);
 }
@@ -409,29 +409,37 @@ async function loadDecisions(token, ticksRepo) {
   return { byId, warning };
 }
 
-async function putDecision(token, ticksRepo, record, sha) {
+const SHA_MISMATCH_RETRIES = 3;
+
+async function putDecision(token, ticksRepo, record) {
   const path = contentsPath(ticksRepo, decisionPath(record.id));
-  const send = (nextSha) => {
+  const content = utf8ToBase64(decisionFileText(record));
+  let lastError = null;
+  for (let attempt = 0; attempt <= SHA_MISMATCH_RETRIES; attempt += 1) {
+    const sha = await currentDecisionSha(token, path);
     const body = {
       message: `Record decision ${record.id}`,
-      content: utf8ToBase64(decisionFileText(record)),
+      content,
     };
-    if (nextSha) body.sha = nextSha;
-    return github(token, path, { method: "PUT", body });
-  };
-  try {
-    return await send(sha);
-  } catch (error) {
-    if (error.status !== 409 && error.status !== 422) throw error;
-    let current = null;
+    if (sha) body.sha = sha;
     try {
-      current = await github(token, path, { method: "GET" });
-    } catch (getError) {
-      if (getError.status !== 404) throw getError;
+      return await github(token, path, { method: "PUT", body });
+    } catch (error) {
+      lastError = error;
+      const mismatch = error.status === 409 || error.status === 422;
+      if (!mismatch || attempt === SHA_MISMATCH_RETRIES) throw error;
     }
-    const nextSha = current && current.sha ? current.sha : "";
-    if (nextSha === sha) throw error;
-    return send(nextSha);
+  }
+  throw lastError;
+}
+
+async function currentDecisionSha(token, path) {
+  try {
+    const current = await github(token, path, { method: "GET" });
+    return current && typeof current.sha === "string" ? current.sha : "";
+  } catch (error) {
+    if (error.status === 404) return "";
+    throw error;
   }
 }
 

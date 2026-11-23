@@ -102,10 +102,16 @@ class DecisionFormatTest(unittest.TestCase):
         reject = node_json("note", "reject", "ignored", "")
         self.assertEqual(reject["note"], "")
 
+    def test_saved_time_is_london_local(self):
+        winter = node_json("time", "2026-11-23T22:05:00Z")
+        self.assertEqual(winter["time"], "22:05 Mon 23 Nov")
+        summer = node_json("time", "2026-07-15T21:05:00Z")
+        self.assertEqual(summer["time"], "22:05 Wed 15 Jul")
+
 
 def node_json(mode, *args):
     script = r"""
-import { buildDecisionRecord, decisionFileText, decisionPath, noteForDecision } from "./decision.js";
+import { buildDecisionRecord, decisionFileText, decisionPath, formatDecisionTime, noteForDecision } from "./decision.js";
 const mode = process.argv[1];
 if (mode === "record") {
   const [id, decision, note, decidedAt] = process.argv.slice(2);
@@ -125,6 +131,8 @@ if (mode === "record") {
   } catch (error) {
     process.stdout.write(JSON.stringify({ ok: false, error: error.message }));
   }
+} else if (mode === "time") {
+  process.stdout.write(JSON.stringify({ time: formatDecisionTime(process.argv[2]) }));
 } else {
   throw new Error("unknown mode");
 }

@@ -107,27 +107,17 @@ class RoundTripTest(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
-    def test_committed_sample_is_placeholder_only(self):
-        self.assertTrue(SAMPLE.is_file(), "data.enc.json sample is missing")
+    def test_committed_file_is_an_encrypted_envelope(self):
+        self.assertTrue(SAMPLE.is_file(), "data.enc.json is missing")
         raw = SAMPLE.read_text(encoding="utf-8")
+        document = json.loads(raw)
+        self.assertEqual(document["version"], 1)
+        self.assertEqual(document["kdf"], "PBKDF2-SHA256")
+        self.assertGreaterEqual(document["iterations"], MIN_ITERATIONS)
+        self.assertLessEqual(document["iterations"], MAX_ITERATIONS)
         self.assertNotIn("example-only-not-a-real-token", raw)
-        self.assertNotIn("example-only", raw)
-        payload = decrypt_with_page(SAMPLE, "example-only")
-        python_payload = decrypt_payload(json.loads(raw), "example-only")
-        self.assertEqual(payload, python_payload)
-        token = payload["ticks_token"]
-        self.assertIn("example-only", token)
-        self.assertIn("not-a-real", token)
-        self.assertNotIn("ghp_", token)
-        self.assertNotIn("github_pat_", token)
-        self.assertEqual(payload["ticks_repo"], "ianbanner/christian-approvals-ticks")
-        sections = {item["section"] for item in payload["items"]}
-        self.assertEqual(sections, {"long_form", "short_form", "audiences"})
-        for item in payload["items"]:
-            self.assertTrue(item["url"].startswith("https://example.com/"))
-            self.assertNotIn("ghp_", json.dumps(item))
-        expired = [item for item in payload["items"] if item["deadline_iso"].startswith("2020-")]
-        self.assertTrue(expired)
+        self.assertNotIn("ghp_", raw)
+        self.assertNotIn("github_pat_", raw)
 
     def test_ui_copy_avoids_em_dash_and_banned_styling(self):
         import re
@@ -138,6 +128,9 @@ class RoundTripTest(unittest.TestCase):
             self.assertNotIn("\u2013", text, name)
             self.assertIsNone(re.search(r"\bInter\b", text), name)
             self.assertIsNone(re.search(r"indigo", text, re.IGNORECASE), name)
+        css = (ROOT / "styles.css").read_text(encoding="utf-8")
+        self.assertRegex(css, r"\.save-status\.approve\s*\{[^}]*color:\s*#1F3B2D")
+        self.assertRegex(css, r"\.save-status\.error[^{]*\{[^}]*color:\s*#7A2E2E")
 
     def test_scrub_removes_credentials_from_errors(self):
         previous_token = os.environ.get("CA_TICKS_TOKEN")
