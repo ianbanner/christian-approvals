@@ -173,9 +173,51 @@ function renderDashboard() {
   app.replaceChildren(root);
 }
 
+function isSettledStatus(item) {
+  const status = String(item.status || "").toLowerCase();
+  return status === "approved" || status === "published" || status === "scheduled" || status === "approved_publishing";
+}
+
+function settledStatusWord(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "published") return "Published";
+  if (value === "approved") return "Approved";
+  if (value === "scheduled") return "Scheduled";
+  if (value === "approved_publishing") return "Approved, being published";
+  return status || "Approved";
+}
+
+function renderSettledLine(item) {
+  const row = el("article", { class: "card settled" });
+  if (item.id) row.id = `item-${cssId(item.id)}`;
+  const status = String(item.status || "approved").toLowerCase();
+  const title = text(item.title) || text(item.id) || "Untitled";
+  const href = safeUrl(item.permalink || item.published_url || (status === "published" ? item.url : ""));
+  const titleNode = href
+    ? el("a", { href, target: "_blank", rel: "noopener noreferrer" }, [title])
+    : document.createTextNode(title);
+  const line = el("p", { class: "settled-line" }, [
+    el("span", { class: "settled-status" }, [settledStatusWord(status)]),
+    " ",
+    el("span", { class: "settled-title" }, [titleNode]),
+  ]);
+  const metaBits = [];
+  if (item.id) metaBits.push(String(item.id));
+  if (item.deadline_label) metaBits.push(String(item.deadline_label));
+  if (href && status === "published") metaBits.push("Open the published Note");
+  if (metaBits.length) {
+    const meta = el("span", { class: "settled-meta" }, [" " + metaBits.join(". ")]);
+    line.append(meta);
+  }
+  row.append(line);
+  return row;
+}
+
 function renderSection(section, items, now) {
-  const active = items.filter((item) => !isExpired(item, now)).sort(compareDeadline);
-  const expired = items.filter((item) => isExpired(item, now)).sort(compareDeadline);
+  const settled = items.filter((item) => isSettledStatus(item)).sort(compareDeadline);
+  const pending = items.filter((item) => !isSettledStatus(item));
+  const active = pending.filter((item) => !isExpired(item, now)).sort(compareDeadline);
+  const expired = pending.filter((item) => isExpired(item, now)).sort(compareDeadline);
   const block = el("section", { class: "section", id: `section-${section.id}` });
   block.append(
     el("header", { class: "section-head" }, [
@@ -183,13 +225,20 @@ function renderSection(section, items, now) {
       el("p", {}, [section.blurb]),
     ])
   );
-  if (!active.length && !expired.length) {
+  if (!settled.length && !active.length && !expired.length) {
     block.append(el("p", { class: "empty" }, ["Nothing waiting in this section."]));
     return block;
   }
-  const list = el("div", { class: "cards" });
-  for (const item of active) list.append(renderCard(item));
-  block.append(list);
+  if (settled.length) {
+    const settledList = el("div", { class: "cards settled-list" });
+    for (const item of settled) settledList.append(renderSettledLine(item));
+    block.append(settledList);
+  }
+  if (active.length) {
+    const list = el("div", { class: "cards" });
+    for (const item of active) list.append(renderCard(item));
+    block.append(list);
+  }
   if (expired.length) {
     const details = el("details", { class: "expired" });
     details.append(el("summary", {}, [`Expired (${expired.length})`]));

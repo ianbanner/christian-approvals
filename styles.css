@@ -211,6 +211,34 @@ button:active:not(:disabled) { transform: translateY(1px); }
 
 .card { padding: 1rem 1rem 1.05rem; }
 
+.card.settled {
+  padding: 0.65rem 0.9rem;
+  background: var(--good-bg);
+  box-shadow: none;
+  border: 1px solid var(--line);
+}
+
+.settled-list { gap: 0.45rem; margin-bottom: 0.9rem; }
+
+.settled-line { margin: 0; overflow-wrap: anywhere; }
+
+.settled-status {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--green);
+  margin-right: 0.45rem;
+}
+
+.settled-meta {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 .card[data-decision="approve"] { box-shadow: inset 5px 0 0 var(--green), var(--shadow); }
 .card[data-decision="reject"] { box-shadow: inset 5px 0 0 var(--danger), var(--shadow); }
 .card[data-decision="change"] { box-shadow: inset 5px 0 0 var(--gold), var(--shadow); }
